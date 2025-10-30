@@ -32,7 +32,7 @@ https://github.com/backdrop-contrib/username/issues.
 Current Maintainers
 -------------------
 
-- Seeking maintainer(s)
+- [Alan Mels](https://github.com/alanmels)
 
 
 Credits

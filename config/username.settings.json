@@ -1,6 +1,9 @@
 {
     "_config_name": "username.settings",
-    "automatic": 0,
-    "pattern": "",
-    "lower_case": 0
+    "automatic": 1,
+    "pattern": "[user:created:raw]_[user:uid]",
+    "lower_case": 1,
+    "page_title_automatic": 0,
+    "page_title_pattern": "",
+    "page_title_lower_case": 0
 }

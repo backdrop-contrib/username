@@ -1,11 +1,14 @@
 Username
 ========
 
-Automatically generate usernames based on a token string.
+Automatically generate usernames and page titles based on a token string.
 
 If you don't want users setting their own usernames, generate them automatically
 using tokens. They can be based on the user ID, email address, or custom fields
 attached to user profiles.
+
+You can also automatically generate page titles for user profile pages using
+tokens, allowing for more descriptive or customized titles.
 
 
 Installation

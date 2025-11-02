@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @file
  * Automatically generate usernames based on a token string.
@@ -63,7 +64,40 @@ function username_form_user_admin_settings_alter(&$form, &$form_state, $form_id)
       ),
     ),
   );
-  $form['#validate'][] = 'username_user_admin_settings_validate';
+  $form['username']['page_title_automatic'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Automatically generate profile titles for user profiles'),
+    '#default_value' => $config->get('page_title_automatic'),
+  );
+  $form['username']['page_title_pattern'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Profile title pattern'),
+    '#description' => t('The token string used to generate profile titles for user profiles. !token_link', array(
+      '!token_link' => theme('token_tree_link', array('token_types' => array('user'))),
+    )),
+    '#default_value' => $config->get('page_title_pattern'),
+    '#element_validate' => array('token_element_validate'),
+    '#token_types' => array('user'),
+    '#states' => array(
+      'visible' => array(
+        ':input[name=page_title_automatic]' => array('checked' => TRUE),
+      ),
+      'required' => array(
+        ':input[name=page_title_automatic]' => array('checked' => TRUE),
+      ),
+    ),
+  );
+  $form['username']['page_title_lower_case'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Convert profile title to lower case'),
+    '#description' => t('If enabled, this setting will convert the output of the profile title pattern to lowercase.'),
+    '#default_value' => $config->get('page_title_lower_case'),
+    '#states' => array(
+      'visible' => array(
+        ':input[name=page_title_automatic]' => array('checked' => TRUE),
+      ),
+    ),
+  );
 }
 
 /**
@@ -90,6 +124,23 @@ function username_user_admin_settings_validate($form, &$form_state) {
       form_set_error('pattern', t('The <em>Pattern</em> field contains an illegal character.'));
     }
   }
+
+  if ($values['page_title_automatic']) {
+    // Page title pattern is required.
+    if (empty($values['page_title_pattern'])) {
+      form_set_error('page_title_pattern', t('The <em>Profile title pattern</em> field is required.'));
+    }
+
+    // Page title pattern cannot start or end with a space.
+    if (trim($values['page_title_pattern']) !== $values['page_title_pattern']) {
+      form_set_error('page_title_pattern', t('The <em>Profile title pattern</em> field cannot start or end with a space.'));
+    }
+
+    // Page title pattern can only contain certain characters.
+    if (preg_match("/[^ a-z0-9@+_.'-\[\]:]/i", $values['page_title_pattern'])) {
+      form_set_error('page_title_pattern', t('The <em>Profile title pattern</em> field contains an illegal character.'));
+    }
+  }
 }
 
 /**
@@ -109,7 +160,9 @@ function username_form_user_register_form_alter(&$form, &$form_state, $form_id) 
  * Implements hook_form_FORM_ID_alter() for user_profile_form().
  */
 function username_form_user_profile_form_alter(&$form, &$form_state, $form_id) {
-  if (config_get('username.settings', 'automatic')) {
+  $config = config('username.settings');
+
+  if ($config->get('automatic')) {
     // Disable the username field.
     $form['account']['name']['#disabled'] = TRUE;
 
@@ -119,6 +172,16 @@ function username_form_user_profile_form_alter(&$form, &$form_state, $form_id) {
       $form['account']['name']['#description'] .= ' ' . t('The pattern can be configured in the <a href="@settings">Account Settings</a>.', array(
         '@settings' => url('admin/config/people/settings'),
       ));
+    }
+  }
+
+  if ($config->get('page_title_automatic')) {
+    $account = isset($form['#user']) && is_object($form['#user']) ? $form['#user'] : NULL;
+    $title = username_get_profile_title($account);
+
+    if ($title !== FALSE) {
+      backdrop_set_title($title);
+      $form['#title'] = $title;
     }
   }
 }
@@ -201,4 +264,233 @@ function username_clean_tokens(&$replacements, $data, $options) {
 
     $replacements[$token] = $value;
   }
+}
+
+/**
+ * Implements hook_preprocess_page().
+ */
+function username_preprocess_page(&$variables) {
+  $title = username_get_profile_title();
+
+  if ($title === FALSE) {
+    return;
+  }
+
+  backdrop_set_title($title);
+  $variables['title'] = $title;
+
+  if (!empty($variables['head_title_array']) && is_array($variables['head_title_array'])) {
+    $variables['head_title_array']['title'] = $title;
+
+    $separator = $variables['head_title_array']['separator'] ?? ' | ';
+    $head_parts = array();
+    if (!empty($variables['head_title_array']['title'])) {
+      $head_parts[] = $variables['head_title_array']['title'];
+    }
+    if (!empty($variables['head_title_array']['name'])) {
+      $head_parts[] = $variables['head_title_array']['name'];
+    }
+    if (!empty($variables['head_title_array']['slogan'])) {
+      $head_parts[] = $variables['head_title_array']['slogan'];
+    }
+
+    $variables['head_title'] = implode($separator, $head_parts);
+  }
+  else {
+    $variables['head_title'] = $title;
+  }
+}
+
+/**
+ * Implements hook_preprocess_page_components().
+ */
+function username_preprocess_page_components(&$variables) {
+  $title = username_get_profile_title();
+
+  if ($title !== FALSE) {
+    backdrop_set_title($title);
+    $variables['title'] = $title;
+  }
+}
+
+/**
+ * Implements hook_preprocess_layout().
+ */
+function username_preprocess_layout(&$variables) {
+  $title = username_get_profile_title();
+
+  if ($title === FALSE) {
+    return;
+  }
+
+  backdrop_set_title($title);
+
+  $has_title_block = FALSE;
+  if (!empty($variables['layout']) && isset($variables['layout']->content) && is_array($variables['layout']->content)) {
+    foreach ($variables['layout']->content as $block) {
+      if (isset($block->delta) && $block->delta === 'page_components') {
+        $child_delta = $block->childDelta ?? NULL;
+        if ($child_delta === 'title' || $child_delta === 'title_combo') {
+          $has_title_block = TRUE;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!$has_title_block) {
+    $variables['title'] = $title;
+  }
+
+  if (!empty($variables['admin']) && isset($variables['content']) && is_array($variables['content']) && !$has_title_block) {
+    $variables['content']['title'] = $title;
+  }
+}
+
+/**
+ * Implements hook_menu_breadcrumb_alter().
+ */
+function username_menu_breadcrumb_alter(&$active_trail, $item) {
+  $account = username_get_profile_account();
+  if (!$account) {
+    return;
+  }
+
+  $title = username_get_profile_title($account);
+  if ($title === FALSE) {
+    return;
+  }
+
+  $safe_title = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+  $username_sanitized = htmlspecialchars($account->name, ENT_QUOTES, 'UTF-8');
+  $target_paths = array(
+    'user/' . $account->uid,
+    'user/' . $account->uid . '/view',
+  );
+
+  foreach ($active_trail as &$link) {
+    if (!is_array($link)) {
+      continue;
+    }
+
+    $matches_username = isset($link['title']) && $link['title'] === $username_sanitized;
+    $matches_path = isset($link['href']) && in_array($link['href'], $target_paths, TRUE);
+
+    if (!$matches_username && !$matches_path) {
+      continue;
+    }
+
+    $link['title'] = $safe_title;
+
+    if (!isset($link['localized_options'])) {
+      $link['localized_options'] = array();
+    }
+
+    if (!isset($link['localized_options']['attributes'])) {
+      $link['localized_options']['attributes'] = array();
+    }
+
+    $link['localized_options']['attributes']['title'] = $title;
+  }
+}
+
+/**
+ * Implements hook_page_title_alter().
+ */
+function username_page_title_alter(&$title) {
+  $new_title = username_get_profile_title();
+
+  if ($new_title !== FALSE) {
+    $title = $new_title;
+  }
+}
+
+/**
+ * Resolve the user account for the current user-related route.
+ *
+ * @return object|false
+ *   The loaded user account when viewing a user profile path, or FALSE.
+ */
+function username_get_profile_account() {
+  static $account;
+
+  if (!isset($account)) {
+    $account = FALSE;
+
+    $candidate = menu_get_object('user', 1);
+    if (is_object($candidate) && !empty($candidate->uid)) {
+      $account = $candidate;
+    }
+
+    if ($account === FALSE) {
+      $router_item = menu_get_item();
+      if (!empty($router_item['map']) && is_array($router_item['map'])) {
+        foreach ($router_item['map'] as $value) {
+          if (is_object($value) && !empty($value->uid)) {
+            $account = $value;
+            break;
+          }
+        }
+      }
+    }
+
+    if ($account === FALSE) {
+      $path = current_path();
+      $parts = explode('/', trim($path, '/'));
+
+      if (!empty($parts[0]) && $parts[0] === 'user' && !empty($parts[1]) && is_numeric($parts[1])) {
+        $account = user_load((int) $parts[1]);
+      }
+    }
+  }
+
+  return $account;
+}
+
+/**
+ * Build the configured profile title for the current request.
+ *
+ * @return string|false
+ *   The generated title string, or FALSE when generation is skipped.
+ */
+function username_get_profile_title($account = NULL) {
+  static $cache = array();
+
+  $config = config('username.settings');
+
+  if (!$config->get('page_title_automatic')) {
+    return FALSE;
+  }
+
+  if (!is_object($account)) {
+    $account = username_get_profile_account();
+  }
+
+  if (!$account || empty($account->uid)) {
+    return FALSE;
+  }
+
+  if (isset($cache[$account->uid])) {
+    return $cache[$account->uid];
+  }
+
+  $pattern = trim($config->get('page_title_pattern'));
+  if ($pattern === '') {
+    $cache[$account->uid] = FALSE;
+    return FALSE;
+  }
+
+  $generated = token_replace($pattern, array('user' => $account), array(
+    'clear' => TRUE,
+    'callback' => 'username_clean_tokens',
+  ));
+
+  if ($config->get('page_title_lower_case')) {
+    $generated = strtolower($generated);
+  }
+
+  $generated = trim($generated);
+  $cache[$account->uid] = ($generated === '') ? FALSE : $generated;
+
+  return $cache[$account->uid];
 }

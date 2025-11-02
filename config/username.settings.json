@@ -1,5 +1,6 @@
 {
     "_config_name": "username.settings",
     "automatic": 0,
-    "pattern": ""
+    "pattern": "",
+    "lower_case": 0
 }

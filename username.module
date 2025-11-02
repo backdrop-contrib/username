@@ -52,7 +52,17 @@ function username_form_user_admin_settings_alter(&$form, &$form_state, $form_id)
       ),
     ),
   );
-
+  $form['username']['lower_case'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Convert to lower case'),
+    '#description' => t('If enabled, this setting will convert the output of the pattern to lowercase.'),
+    '#default_value' => $config->get('lower_case'),
+    '#states' => array(
+      'visible' => array(
+        ':input[name=automatic]' => array('checked' => TRUE),
+      ),
+    ),
+  );
   $form['#validate'][] = 'username_user_admin_settings_validate';
 }
 
@@ -141,6 +151,11 @@ function username_generate($account) {
       'clear' => TRUE,
       'callback' => 'username_clean_tokens',
     ));
+
+    // Convert to lowercase if option enabled.
+    if ($config->get('lower_case')) {
+      $name = strtolower($name);
+    }
 
     // If the generated username is different than the current username...
     if ($name != $account->name) {
